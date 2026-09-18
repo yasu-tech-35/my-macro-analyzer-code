@@ -1,11 +1,5 @@
-// src/App.jsx
 import React, { useState, useEffect } from "react";
 import "bootstrap/dist/css/bootstrap.min.css";
-
-// Firebase 認証の追加インポート
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "./firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 // サービス & ユーティリティのインポート
 import { fetchFXDaily } from "./services/marketData";
@@ -13,6 +7,8 @@ import { generateMacroReport } from "./services/gemini";
 import { calculatePivotPoints } from "./utils/pivot";
 import { detectTrendlines } from "./utils/trendline";
 import { calculateCorrelation } from "./utils/correlation";
+import { db } from "./firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 // UIコンポーネントのインポート
 import Header from "./components/Header";
@@ -21,10 +17,6 @@ import CorrelationPanel from "./components/CorrelationPanel";
 import AIScenarioPanel from "./components/AIScenarioPanel";
 
 export default function App() {
-  // 認証状態の管理
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
   // アプリケーションの状態管理
   const [selectedSymbol, setSelectedSymbol] = useState("USDJPY");
   const [candles, setCandles] = useState([]);
@@ -32,6 +24,7 @@ export default function App() {
   const [trendlines, setTrendlines] = useState([]);
   const [correlationData, setCorrelationData] = useState(null);
   const [aiReport, setAiReport] = useState(null);
+
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -42,15 +35,6 @@ export default function App() {
     gold: 2510.0,
   });
 
-  // 0. Firebase Auth の認証状態を監視
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
   // 1. 初回および通貨ペア変更時に市場データを取得・計算
   useEffect(() => {
     loadMarketData();
@@ -59,7 +43,7 @@ export default function App() {
   const loadMarketData = async () => {
     setIsLoadingData(true);
     try {
-      // 選択中のシンボルに応じて FX 日足データを取得（1時間以内ならキャッシュが使用される）
+      // 選択中のシンボルに応じて FX 日足データを取得
       const fromCurr = selectedSymbol.substring(0, 3);
       const toCurr = selectedSymbol.substring(3, 6);
       const dailyData = await fetchFXDaily(fromCurr, toCurr);
@@ -78,6 +62,7 @@ export default function App() {
         // 相関計算 (擬似マクロデータ系列との相関係数を算出)
         const closePrices = dailyData.map((c) => c.close);
         const dummyDxyPrices = closePrices.map((p) => p * 0.7 + (Math.random() - 0.5));
+        
         setCorrelationData({
           dxy: calculateCorrelation(closePrices, dummyDxyPrices),
           us10y: 0.65,
@@ -92,19 +77,14 @@ export default function App() {
     }
   };
 
-  // 2. AI Gemini によるシナリオ解析の実行と Firestore 保存
+  // 2. Gemini AI によるシナリオ解析の実行と Firestore 保存
   const handleRunAIAnalysis = async () => {
     if (candles.length === 0 || !pivots) return;
-
-    // 認証確認（未完了の場合は実行を防ぐ）
-    if (!user) {
-      alert("Firebase認証の初期化中です。しばらく待ってから再試行してください。");
-      return;
-    }
 
     setIsAnalyzing(true);
     try {
       const currentPrice = candles[candles.length - 1].close;
+
       const context = {
         symbol: selectedSymbol,
         currentPrice,
@@ -120,33 +100,21 @@ export default function App() {
       const report = await generateMacroReport(context);
       setAiReport(report);
 
-      // 分析結果を Firestore に保存（認証済みユーザーとして書き込み）
+      // 分析結果を Firestore に保存
       await addDoc(collection(db, "ai_reports"), {
         targetSymbol: selectedSymbol,
         report,
-        userId: user.uid, // 匿名ユーザーのIDを保存
         createdAt: serverTimestamp(),
       });
     } catch (error) {
-      console.error("AI分析またはFirestore保存エラー:", error);
       alert("AI分析中にエラーが発生しました。APIキーまたはネットワークを確認してください。");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // 認証確認中の画面
-  if (authLoading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center vh-100 bg-dark text-light">
-        <div className="spinner-border text-primary me-2" role="status"></div>
-        <span>Firebase 認証初期化中...</span>
-      </div>
-    );
-  }
-
   return (
-    <div className="bg-dark text-light min-vh-100">
+    <div className="bg-dark text-light min-vh-100 pb-4">
       {/* 1. ヘッダー & ナビゲーション */}
       <Header
         selectedSymbol={selectedSymbol}
@@ -157,8 +125,8 @@ export default function App() {
         isAnalyzing={isAnalyzing}
       />
 
-      {/* 2. メインコンテンツエリア */}
-      <div className="container-fluid py-3">
+      <div className="container-fluid px-3">
+        {/* 2. メインコンテンツエリア */}
         <div className="row g-3">
           {/* 左側 (70%幅): メインチャート */}
           <div className="col-lg-8">
@@ -172,10 +140,8 @@ export default function App() {
               macroIndicators={macroIndicators}
             />
           </div>
-        </div>
 
-        {/* 下部 (全幅): AI Gemini シナリオ予測ボード */}
-        <div className="row g-3 mt-1">
+          {/* 下部 (全幅): Gemini AI シナリオ予測ボード */}
           <div className="col-12">
             <AIScenarioPanel report={aiReport} isLoading={isAnalyzing} />
           </div>

@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 // .env から設定情報を読み込み
 const firebaseConfig = {
@@ -18,3 +18,8 @@ const app = initializeApp(firebaseConfig);
 // データベース(Firestore)と認証(Auth)のインスタンスをエクスポート
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+// アプリ起動時に匿名ログインを実行
+signInAnonymously(auth).catch((error) => {
+  console.error("Firebase 匿名認証エラー:", error);
+});
